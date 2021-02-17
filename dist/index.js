@@ -6944,6 +6944,7 @@ const getFiles = (files) => files
 const getChangedFiles = async (token) => {
     const octokit = github_1.getOctokit(token);
     const pullRequest = github_1.context.payload.pull_request;
+    core_1.debug(JSON.stringify(github_1.context.payload.pull_request));
     let files;
     if (!(pullRequest === null || pullRequest === void 0 ? void 0 : pullRequest.number)) {
         const options = octokit.repos.getCommit.endpoint.merge({
@@ -6965,14 +6966,13 @@ const getChangedFiles = async (token) => {
         const prResponse = await octokit.paginate(options);
         files = getFiles(prResponse);
     }
-    core_1.debug('Files changed...');
-    files.forEach(core_1.debug);
-    const supportedExtensions = core_1.getInput('extensions').split(',');
-    const supportedFiles = files.filter((filename) => {
-        const isSupportedFile = supportedExtensions.find((ext) => filename.endsWith(`.${ext}`));
-        return isSupportedFile;
-    });
-    return supportedFiles;
+    core_1.info('Files changed...');
+    files.forEach(core_1.info);
+    const eslintExtensions = new Set(core_1.getInput('eslintExtensions').split(',').map((ext) => ext.trim()));
+    const stylelintExtensions = new Set(core_1.getInput('stylelintExtensions').split(',').map((ext) => ext.trim()));
+    const eslintFiles = files.filter((filename) => eslintExtensions.has(filename.split('.').slice(-1)[0]));
+    const stylelintFiles = files.filter((filename) => stylelintExtensions.has(filename.split('.').slice(-1)[0]));
+    return [eslintFiles, stylelintFiles];
 };
 exports.default = getChangedFiles;
 
@@ -6984,43 +6984,82 @@ exports.default = getChangedFiles;
 
 "use strict";
 
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    Object.defineProperty(o, k2, { enumerable: true, get: function() { return m[k]; } });
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-const path_1 = __importDefault(__nccwpck_require__(5622));
+const path_1 = __importStar(__nccwpck_require__(5622));
 const core_1 = __nccwpck_require__(2186);
+const command_1 = __nccwpck_require__(7351);
 const exec_1 = __nccwpck_require__(1514);
 const getChangedFiles_1 = __importDefault(__nccwpck_require__(6907));
 const run = async () => {
-    try {
-        const token = process.env.GITHUB_TOKEN;
-        if (!token) {
-            return core_1.setFailed('GITHUB_TOKEN not found in environment variables.');
-        }
-        const enableAnnotations = core_1.getInput('annotations') === 'true';
-        if (!enableAnnotations) {
-            core_1.debug('Disabling Annotations');
-            core_1.info('##[remove-matcher owner=eslint-compact]');
-            core_1.info('##[remove-matcher owner=eslint-stylish]');
-        }
-        const files = await getChangedFiles_1.default(token);
-        core_1.debug('Files for linting...');
-        files.forEach(core_1.debug);
-        if (files.length === 0) {
-            return core_1.info('No files found. Skipping');
-        }
-        const eslintArgs = core_1.getInput('eslintArgs');
-        await exec_1.exec('node', [
-            path_1.default.join(process.cwd(), 'node_modules/eslint/bin/eslint'),
-            ...files,
-            eslintArgs,
-        ].filter(Boolean));
-        return process.exit(0);
+    const token = process.env.GITHUB_TOKEN;
+    const matcherFile = path_1.join(__dirname, '..', '.github', 'stylelint-matcher.json');
+    command_1.issueCommand('add-matcher', {}, matcherFile);
+    if (!token) {
+        return core_1.setFailed('GITHUB_TOKEN not found in environment variables.');
     }
-    catch (err) {
-        return core_1.setFailed(err.message);
+    const enableAnnotations = core_1.getInput('annotations') === 'true';
+    if (!enableAnnotations) {
+        core_1.debug('Disabling Annotations');
+        core_1.info('##[remove-matcher owner=eslint-compact]');
+        core_1.info('##[remove-matcher owner=eslint-stylish]');
     }
+    const [eslintFiles, stylelintFiles] = await getChangedFiles_1.default(token);
+    core_1.debug('Files for linting...');
+    eslintFiles.forEach(core_1.debug);
+    if (eslintFiles.length === 0 && stylelintFiles.length === 0) {
+        return core_1.info('No files found. Skipping');
+    }
+    const eslintArgs = core_1.getInput('eslintArgs');
+    let runErr;
+    if (eslintFiles.length > 0) {
+        try {
+            await exec_1.exec('npx', [
+                path_1.default.join('eslint'),
+                ...eslintFiles,
+                eslintArgs,
+            ].filter(Boolean));
+        }
+        catch (err) {
+            runErr = err;
+        }
+    }
+    if (stylelintFiles.length > 0) {
+        try {
+            await exec_1.exec('npx', [
+                path_1.default.join('stylelint'),
+                ...stylelintFiles,
+            ].filter(Boolean));
+        }
+        catch (err) {
+            runErr = err;
+        }
+    }
+    if (runErr) {
+        return core_1.setFailed(runErr.message);
+    }
+    return process.exit(0);
 };
 run();
 

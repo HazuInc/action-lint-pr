@@ -12,13 +12,21 @@ runs:
 
 inputs:
   eslintArgs:
-    description: 'ESLint CLI flags'
+    description: 'ESLint CLI args'
     required: false
     default: ''
-  extensions:
-    description: 'Extensions to filter'
+  eslintExtensions:
+    description: 'File extensions for eslint'
     required: false
-    default: 'js'
+    default: 'ts, js'
+  stylelintArgs:
+    description: 'stylelint CLI args'
+    required: false
+    default: ''
+  stylelintExtensions:
+    description: 'File extensions for stylelint'
+    required: false
+    default: 'scss, html'
   annotations:
     description: 'Enable or disable annotations'
     required: false
