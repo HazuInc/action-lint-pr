@@ -5,9 +5,10 @@ import {
 } from '@actions/core';
 import { issueCommand } from '@actions/core/lib/command';
 
-import { exec } from '@actions/exec';
+import { exec, ExecOptions } from '@actions/exec';
 import getChangedFiles from './getChangedFiles';
 
+// eslint-disable-next-line max-statements
 const run = async () => {
   const token = process.env.GITHUB_TOKEN;
 
@@ -29,12 +30,16 @@ const run = async () => {
     info('##[remove-matcher owner=eslint-stylish]');
   }
 
-  const [eslintFiles, stylelintFiles] = await getChangedFiles(token);
+  const enabledLinters = getInput('enabledLinters').split(',').map((linter) => linter.trim());
+
+  const [eslintFiles,
+    stylelintFiles,
+    tscFilesAndConfigs] = await getChangedFiles(token, enabledLinters);
 
   debug('Files for linting...');
   eslintFiles.forEach(debug);
 
-  if (eslintFiles.length === 0 && stylelintFiles.length === 0) {
+  if (eslintFiles.length === 0 && stylelintFiles.length === 0 && tscFilesAndConfigs.length === 0) {
     return info('No files found. Skipping');
   }
 
@@ -42,7 +47,7 @@ const run = async () => {
 
   let runErr: Error | undefined;
 
-  if (eslintFiles.length > 0) {
+  if (enabledLinters.includes('eslint') && eslintFiles.length > 0) {
     try {
       await exec('npx', [
         path.join('eslint'),
@@ -54,7 +59,7 @@ const run = async () => {
     }
   }
 
-  if (stylelintFiles.length > 0) {
+  if (enabledLinters.includes('stylelint') && stylelintFiles.length > 0) {
     try {
       await exec('npx', [
         path.join('stylelint'),
@@ -65,8 +70,33 @@ const run = async () => {
     }
   }
 
+  if (enabledLinters.includes('tsc')) {
+    for (const conf of tscFilesAndConfigs) {
+      // const outStream = new Writable({ decodeStrings: true });
+      // outStream.on()
+      const options: ExecOptions = {};
+      options.silent = true;
+      options.listeners = {
+        // eslint-disable-next-line no-loop-func
+        stdline: (data: string) => {
+          const outLine = data;
+          if (conf.baseFiles.includes(outLine.split('(')[0])) {
+            process.stdout.write(`${data}\n`);
+          }
+        },
+      };
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        await exec(`npx tsc --noEmit -p ${conf.configPath}`, undefined, options);
+      } catch (err) {
+        runErr = err;
+      }
+    }
+  }
+
   if (runErr) {
-    return setFailed(runErr.message);
+    // return setFailed(runErr.message);
+    info('linting failed');
   }
 
   return process.exit(0);

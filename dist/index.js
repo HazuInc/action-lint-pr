@@ -6941,7 +6941,23 @@ const github_1 = __nccwpck_require__(5438);
 const getFiles = (files) => files
     .filter((file) => file.status !== 'removed')
     .map((file) => file.filename);
-const getChangedFiles = async (token) => {
+const getEslintFiles = (files) => {
+    return files.filter((filename) => new Set(core_1.getInput('eslintExtensions').split(',').map((ext) => ext.trim())).has(filename.split('.').slice(-1)[0]));
+};
+const getStylelintFiles = (files) => {
+    return files.filter((filename) => new Set(core_1.getInput('stylelintExtensions').split(',').map((ext) => ext.trim())).has(filename.split('.').slice(-1)[0]));
+};
+const getTscFilesAndConfigs = (files) => {
+    return core_1.getInput('tscConfigs').split(',').map((tuple) => {
+        const [basePath, configPath] = tuple.trim().split(':').map((str) => str.trim());
+        return { basePath, configPath };
+    }).map((tuple) => {
+        const baseFiles = files.filter((filename) => filename.indexOf(tuple.basePath) === 0).filter((filename) => filename.split('.').slice(-1)[0] === 'ts');
+        return { baseFiles, configPath: tuple.configPath };
+    })
+        .filter((tuple) => tuple.baseFiles.length > 0);
+};
+const getChangedFiles = async (token, enabledLinters) => {
     const octokit = github_1.getOctokit(token);
     const pullRequest = github_1.context.payload.pull_request;
     core_1.debug(JSON.stringify(github_1.context.payload.pull_request));
@@ -6968,11 +6984,11 @@ const getChangedFiles = async (token) => {
     }
     core_1.info('Files changed...');
     files.forEach(core_1.info);
-    const eslintExtensions = new Set(core_1.getInput('eslintExtensions').split(',').map((ext) => ext.trim()));
-    const stylelintExtensions = new Set(core_1.getInput('stylelintExtensions').split(',').map((ext) => ext.trim()));
-    const eslintFiles = files.filter((filename) => eslintExtensions.has(filename.split('.').slice(-1)[0]));
-    const stylelintFiles = files.filter((filename) => stylelintExtensions.has(filename.split('.').slice(-1)[0]));
-    return [eslintFiles, stylelintFiles];
+    const eslintFiles = enabledLinters.includes('eslint') ? getEslintFiles(files) : [];
+    const stylelintFiles = enabledLinters.includes('stylelint') ? getStylelintFiles(files) : [];
+    const tscFilesAndConfigs = enabledLinters.includes('tsc') ? getTscFilesAndConfigs(files) : [];
+    tscFilesAndConfigs.forEach((conf) => core_1.info(JSON.stringify(conf)));
+    return [eslintFiles, stylelintFiles, tscFilesAndConfigs];
 };
 exports.default = getChangedFiles;
 
@@ -7012,6 +7028,7 @@ const core_1 = __nccwpck_require__(2186);
 const command_1 = __nccwpck_require__(7351);
 const exec_1 = __nccwpck_require__(1514);
 const getChangedFiles_1 = __importDefault(__nccwpck_require__(6907));
+// eslint-disable-next-line max-statements
 const run = async () => {
     const token = process.env.GITHUB_TOKEN;
     const matcherFile = path_1.join(__dirname, '..', '.github', 'stylelint-matcher.json');
@@ -7025,15 +7042,16 @@ const run = async () => {
         core_1.info('##[remove-matcher owner=eslint-compact]');
         core_1.info('##[remove-matcher owner=eslint-stylish]');
     }
-    const [eslintFiles, stylelintFiles] = await getChangedFiles_1.default(token);
+    const enabledLinters = core_1.getInput('enabledLinters').split(',').map((linter) => linter.trim());
+    const [eslintFiles, stylelintFiles, tscFilesAndConfigs] = await getChangedFiles_1.default(token, enabledLinters);
     core_1.debug('Files for linting...');
     eslintFiles.forEach(core_1.debug);
-    if (eslintFiles.length === 0 && stylelintFiles.length === 0) {
+    if (eslintFiles.length === 0 && stylelintFiles.length === 0 && tscFilesAndConfigs.length === 0) {
         return core_1.info('No files found. Skipping');
     }
     const eslintArgs = core_1.getInput('eslintArgs');
     let runErr;
-    if (eslintFiles.length > 0) {
+    if (enabledLinters.includes('eslint') && eslintFiles.length > 0) {
         try {
             await exec_1.exec('npx', [
                 path_1.default.join('eslint'),
@@ -7045,7 +7063,7 @@ const run = async () => {
             runErr = err;
         }
     }
-    if (stylelintFiles.length > 0) {
+    if (enabledLinters.includes('stylelint') && stylelintFiles.length > 0) {
         try {
             await exec_1.exec('npx', [
                 path_1.default.join('stylelint'),
@@ -7056,8 +7074,33 @@ const run = async () => {
             runErr = err;
         }
     }
+    if (enabledLinters.includes('tsc')) {
+        for (const conf of tscFilesAndConfigs) {
+            // const outStream = new Writable({ decodeStrings: true });
+            // outStream.on()
+            const options = {};
+            options.silent = true;
+            options.listeners = {
+                // eslint-disable-next-line no-loop-func
+                stdline: (data) => {
+                    const outLine = data;
+                    if (conf.baseFiles.includes(outLine.split('(')[0])) {
+                        process.stdout.write(`${data}\n`);
+                    }
+                },
+            };
+            try {
+                // eslint-disable-next-line no-await-in-loop
+                await exec_1.exec(`npx tsc --noEmit -p ${conf.configPath}`, undefined, options);
+            }
+            catch (err) {
+                runErr = err;
+            }
+        }
+    }
     if (runErr) {
-        return core_1.setFailed(runErr.message);
+        // return setFailed(runErr.message);
+        core_1.info('linting failed');
     }
     return process.exit(0);
 };

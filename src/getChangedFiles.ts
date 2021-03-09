@@ -3,7 +3,10 @@ import { getOctokit, context } from '@actions/github';
 import { GetResponseDataTypeFromEndpointMethod } from '@octokit/types';
 
 type FileList = string[];
-
+type TscConfigList = {
+  baseFiles: string[];
+  configPath: string;
+}[];
 type File = {
   filename: string;
   additions: number;
@@ -19,7 +22,27 @@ const getFiles = (files: File[]): FileList => files
   .filter((file) => file.status !== 'removed')
   .map((file) => file.filename);
 
-const getChangedFiles = async (token: string): Promise<FileList[]> => {
+const getEslintFiles = (files: FileList) => {
+  return files.filter((filename) => new Set(getInput('eslintExtensions').split(',').map((ext) => ext.trim())).has(filename.split('.').slice(-1)[0]));
+};
+
+const getStylelintFiles = (files: FileList) => {
+  return files.filter((filename) => new Set(getInput('stylelintExtensions').split(',').map((ext) => ext.trim())).has(filename.split('.').slice(-1)[0]));
+};
+
+const getTscFilesAndConfigs = (files: FileList) => {
+  return getInput('tscConfigs').split(',').map((tuple) => {
+    const [basePath, configPath] = tuple.trim().split(':').map((str) => str.trim());
+    return { basePath, configPath };
+  }).map((tuple) => {
+    const baseFiles = files.filter((filename) => filename.indexOf(tuple.basePath) === 0).filter((filename) => filename.split('.').slice(-1)[0] === 'ts');
+    return { baseFiles, configPath: tuple.configPath };
+  })
+    .filter((tuple) => tuple.baseFiles.length > 0);
+};
+
+const getChangedFiles = async (token: string, enabledLinters: string[]):
+Promise<[FileList, FileList, TscConfigList]> => {
   const octokit = getOctokit(token);
   const pullRequest = context.payload.pull_request;
   debug(JSON.stringify(context.payload.pull_request));
@@ -63,12 +86,14 @@ const getChangedFiles = async (token: string): Promise<FileList[]> => {
   info('Files changed...');
   files.forEach(info);
 
-  const eslintExtensions = new Set(getInput('eslintExtensions').split(',').map((ext) => ext.trim()));
-  const stylelintExtensions = new Set(getInput('stylelintExtensions').split(',').map((ext) => ext.trim()));
+  const eslintFiles = enabledLinters.includes('eslint') ? getEslintFiles(files) : [];
+  const stylelintFiles = enabledLinters.includes('stylelint') ? getStylelintFiles(files) : [];
 
-  const eslintFiles = files.filter((filename) => eslintExtensions.has(filename.split('.').slice(-1)[0]));
-  const stylelintFiles = files.filter((filename) => stylelintExtensions.has(filename.split('.').slice(-1)[0]));
-  return [eslintFiles, stylelintFiles];
+  const tscFilesAndConfigs = enabledLinters.includes('tsc') ? getTscFilesAndConfigs(files) : [];
+
+  tscFilesAndConfigs.forEach((conf) => info(JSON.stringify(conf)));
+
+  return [eslintFiles, stylelintFiles, tscFilesAndConfigs];
 };
 
 export default getChangedFiles;

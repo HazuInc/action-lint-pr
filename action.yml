@@ -11,6 +11,10 @@ runs:
   main: 'dist/index.js'
 
 inputs:
+  enabledLinters:
+    description: 'Which linters to run (eslint, stylelint and tsc)'
+    required: false
+    default: "eslint, stylelint"
   eslintArgs:
     description: 'ESLint CLI args'
     required: false
@@ -31,3 +35,7 @@ inputs:
     description: 'Enable or disable annotations'
     required: false
     default: true
+  tscConfigs:
+    description: 'Comma-separated list of (base dir:tsconfig), to use for checking'
+    required: false
+    default: ''
