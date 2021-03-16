@@ -6982,12 +6982,11 @@ const getChangedFiles = async (token, enabledLinters) => {
         const prResponse = await octokit.paginate(options);
         files = getFiles(prResponse);
     }
-    core_1.info('Files changed...');
-    files.forEach(core_1.info);
+    core_1.debug('Files changed...');
+    files.forEach(core_1.debug);
     const eslintFiles = enabledLinters.includes('eslint') ? getEslintFiles(files) : [];
     const stylelintFiles = enabledLinters.includes('stylelint') ? getStylelintFiles(files) : [];
     const tscFilesAndConfigs = enabledLinters.includes('tsc') ? getTscFilesAndConfigs(files) : [];
-    tscFilesAndConfigs.forEach((conf) => core_1.info(JSON.stringify(conf)));
     return [eslintFiles, stylelintFiles, tscFilesAndConfigs];
 };
 exports.default = getChangedFiles;

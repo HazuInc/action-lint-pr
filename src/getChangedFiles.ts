@@ -1,4 +1,4 @@
-import { debug, getInput, info } from '@actions/core';
+import { debug, getInput } from '@actions/core';
 import { getOctokit, context } from '@actions/github';
 import { GetResponseDataTypeFromEndpointMethod } from '@octokit/types';
 
@@ -83,15 +83,13 @@ Promise<[FileList, FileList, TscConfigList]> => {
     files = getFiles(prResponse as File[]);
   }
 
-  info('Files changed...');
-  files.forEach(info);
+  debug('Files changed...');
+  files.forEach(debug);
 
   const eslintFiles = enabledLinters.includes('eslint') ? getEslintFiles(files) : [];
   const stylelintFiles = enabledLinters.includes('stylelint') ? getStylelintFiles(files) : [];
 
   const tscFilesAndConfigs = enabledLinters.includes('tsc') ? getTscFilesAndConfigs(files) : [];
-
-  tscFilesAndConfigs.forEach((conf) => info(JSON.stringify(conf)));
 
   return [eslintFiles, stylelintFiles, tscFilesAndConfigs];
 };
